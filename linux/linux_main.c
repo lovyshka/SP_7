@@ -36,11 +36,11 @@ void body(FILE * fp, int number_of_processes, int data_cnt){
         arr_len++;
     }
 
-    work_with_processes(number_of_processes, arr_len, arr);
+    work_with_pipes(number_of_processes, arr_len, arr);
 
 }
 
-int work_with_processes(int number_of_process, int arr_len, int * arr){
+int work_with_pipes(int number_of_process, int arr_len, int * arr){
     int fd_from_p_to_ch[number_of_process][2];
     int fd_from_ch_to_p[number_of_process][2];
     int * distribution = divided_properly(number_of_process, arr_len);

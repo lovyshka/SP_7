@@ -20,5 +20,5 @@ int lovit_cal(FILE * fp, int number_of_processes);
 int * divided_properly(int number_of_processes, int number_of_numbers);
 int from_string_to_int(char * arg);
 int get_number_of_input(FILE * fp);
-int work_with_processes(int number_of_process, int arr_len, int * arr);
+int work_with_pipes(int number_of_process, int arr_len, int * arr);
 int get_total_sum(int number_of_process, int (* fd_from_ch_to_p)[2]);

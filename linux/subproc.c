@@ -5,6 +5,9 @@ int main(int argc, char * argv[]){
     int fd_to_read, fd_to_write, cnt, sum = 0;
     sscanf(argv[1], "%d", &fd_to_read);
     sscanf(argv[2], "%d", &fd_to_write);
+    // printf("pid = %d\n", getpid());
+    // sleep(300);
+    
     if (read(fd_to_read, &cnt, sizeof(int)) == -1){
         printf("Error while reading from pipe\n");
         return -1;
