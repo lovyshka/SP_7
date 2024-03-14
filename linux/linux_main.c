@@ -11,22 +11,24 @@ int main(int argc, char *argv[]){
     if (check_argc(argc) == 1) return -1; //checek argc
 
     int number_of_processes = from_string_to_int(argv[2]); 
+    int ipc_ctl = from_string_to_int(argv[3]);
+    // printf("ipc_ctl = %d", ipc_ctl);
     FILE * fp = fopen(argv[1], "r");
-    if (lovit_cal(fp, number_of_processes) == 1) return -1; //check valid fp and number_of_processes 
+    if (lovit_cal(fp, number_of_processes, ipc_ctl) == 1) return -1; //check valid fp and number_of_processes 
     
     int data_cnt = get_number_of_input(fp);
     if (check_data(data_cnt) == 1) return -1; //validate number of data in file
     
-    body(fp, number_of_processes, data_cnt);
+    body(fp, number_of_processes, data_cnt, ipc_ctl);
 
     fclose(fp);     
     return 0;
 }
 
-void body(FILE * fp, int number_of_processes, int data_cnt){
+void body(FILE * fp, int number_of_processes, int data_cnt, int ipc_ctl){
     check_and_reduce(&number_of_processes, data_cnt);
 
-    int tmp, arr_len = 0;
+    int tmp, arr_len = 0, sum = 0;
     int * arr = (int *) calloc(1, sizeof(int)); 
 
     while (fscanf(fp, "%d", &tmp) == 1){
@@ -35,28 +37,105 @@ void body(FILE * fp, int number_of_processes, int data_cnt){
         arr[arr_len] = tmp;
         arr_len++;
     }
-
-    work_with_pipes(number_of_processes, arr_len, arr);
-
+    controller(ipc_ctl, number_of_processes, arr_len, arr, &sum);
+    printf("sum = %d\n", sum);
 }
 
-int work_with_pipes(int number_of_process, int arr_len, int * arr){
+void controller(int ipc_ctl, int number_of_processes, int arr_len, int * arr, int * sum){
+    if (ipc_ctl == 0){
+        printf("Work with pipes was choosen\n");
+        work_with_pipes(number_of_processes, arr_len, arr, sum);
+    }else if (ipc_ctl == 1) {
+        printf("Work with shared memory was choosen\n");
+        work_with_shared_memory(number_of_processes, arr_len, arr, sum);
+    }
+}
+
+
+int work_with_shared_memory(int number_of_process, int arr_len, int * arr, int * totoal_sum){
+    int index = 0, sum = 0;
+    int * distribution = divided_properly(number_of_process, arr_len);
+    int keys[number_of_process];
+    int shmids[number_of_process];
+    int * tmp_buf[number_of_process];
+
+    for (int i = 0; i < number_of_process; i++){    
+        keys[i] = ftok("/dev/null", 77 + i);  // создали идентификатор   
+        if (keys[i] == -1){
+            printf("Error while calculating keys\n");
+            return -1;
+        }
+        shmids[i] = shmget(keys[i], sizeof(int) * distribution[i], 0666 | IPC_CREAT); //выделяется память
+        if (shmids[i] == -1) {
+            perror("shmget");
+            exit(EXIT_FAILURE);
+        }
+
+        tmp_buf[i] = (int *) shmat(shmids[i], (void *) 0, 0);
+        if (tmp_buf[i] == (int *) -1) {
+            perror("shmat");
+            exit(EXIT_FAILURE);
+        }
+
+        for (int j = 0; j < distribution[i]; j++){
+            tmp_buf[i][j] = arr[index];
+            index++;
+        }
+    }
+    for (int i = 0; i < number_of_process; i++){
+        int pid = fork();
+        if (pid == 0){
+            char ctl[] = "1";
+            char key_buf[100];
+            char len_buf[100];
+            sprintf(key_buf, "%d", 77 + i);
+            sprintf(len_buf, "%d", distribution[i]);
+            char * args[] = {"./subproc", ctl, key_buf, len_buf, NULL};
+            if (execve("./subproc", args, NULL) == -1) {
+                printf("Error while exec\n");
+                return -1;
+            }
+        }
+        else if (pid == -1){
+            printf("Error while forking\n");
+            return -1;
+        }
+    }
+
+    while(wait(NULL) != -1 || errno != ECHILD);
+    for (int h = 0; h < number_of_process; h++){
+        sum += tmp_buf[h][0];
+        if (shmdt(tmp_buf[h]) == -1){
+            printf("Error while detaching memory\n");
+            return -1;
+        }
+    }
+
+    free(distribution);
+    free(arr);
+    
+    *totoal_sum = sum;
+
+    //сбор артефактов
+}
+
+int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_sum){
     int fd_from_p_to_ch[number_of_process][2];
     int fd_from_ch_to_p[number_of_process][2];
     int * distribution = divided_properly(number_of_process, arr_len);
     int index = 0, sum = 0;
 
     for (int i = 0; i < number_of_process; i++){
-        if (pipe(fd_from_ch_to_p[i]) == -1 || pipe(fd_from_p_to_ch[i]) == -1){ 
+        if (pipe(fd_from_ch_to_p[i]) == -1 || pipe(fd_from_p_to_ch[i]) == -1){  // создали трубы
             printf("Error while creating pipe\n");
             return -1;
         }
-        int pid = fork();
+        int pid = fork();//форкнулись
         if (pid == -1){
             printf("Error while forking\n");
             return -1;
         }
-        else if (pid != 0){
+        else if (pid != 0){ // в родительском распихиваем данные по трубам
             if (close(fd_from_p_to_ch[i][0]) == -1 || close(fd_from_ch_to_p[i][1]) == -1) {
                 printf("Error while closing fd");
                 return -1;
@@ -78,16 +157,17 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr){
                 return -1;
             }
         }
-        else {
+        else { // в дочке экзекаемся
             if (close(fd_from_p_to_ch[i][1]) == -1 || close(fd_from_ch_to_p[i][0]) == -1) {
                 printf("Error while closing fd\n");
                 return -1;
             }
-            char fd_to_read[12];
-            char fd_to_write[12];
+            char ctl[] = "0";
+            char fd_to_read[100];
+            char fd_to_write[100];
             sprintf(fd_to_read, "%d", fd_from_p_to_ch[i][0]);
             sprintf(fd_to_write, "%d", fd_from_ch_to_p[i][1]);
-            char *args[] = {"./subproc", fd_to_read, fd_to_write, NULL};
+            char *args[] = {"./subproc", ctl, fd_to_read, fd_to_write, NULL};
             if (execve("./subproc", args, NULL) == -1) {
                 printf("Error while exec\n");
                 return -1;
@@ -97,8 +177,11 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr){
     }
     while(wait(NULL) != -1 || errno != ECHILD);
     
-    
-    printf("total sum = %d\n", get_total_sum(number_of_process, fd_from_ch_to_p));
+    free(distribution);
+    free(arr);
+
+    sum =  get_total_sum(number_of_process, fd_from_ch_to_p);
+    *total_sum = sum;
 }
 
 int get_total_sum(int number_of_process, int (* fd_from_ch_to_p)[2]){
@@ -147,16 +230,16 @@ int from_string_to_int(char * arg){
 
 int check_argc(int argc){
     int flag = 0;
-    if (argc != 3){
+    if (argc != 4){
         flag = 1;
-        printf("Invalid number of arguments: see usage\n ./a.out [input file] [nuber of child process]\n");
+        printf("Invalid number of arguments: see usage\n ./a.out [input file] [nuber of child process] [0 - pipes, 1 - shared mamory]\n");
     }
     return flag;
 }
 
 int check_data(int data_cnt){
     int flag = 0;
-    if (data_cnt < 1){
+    if (data_cnt <= 1){
         flag = 1;
         printf("Empty file given or there are less then 2 numbers\n");
     }
@@ -164,7 +247,7 @@ int check_data(int data_cnt){
 }
 
 
-int lovit_cal(FILE * fp, int number_of_processes){
+int lovit_cal(FILE * fp, int number_of_processes, int ipc_ctl){
     int flag = 0;
     if (fp == NULL){
         flag = 1;
@@ -173,6 +256,10 @@ int lovit_cal(FILE * fp, int number_of_processes){
     else if (number_of_processes <= 0 || number_of_processes >= 32750){
         flag = 1;
         printf("Invalid parameter file or number or children process given, be careful, that maximum number of threads is 32750\nAlso check the syntax, it has to be ./a.out [input file] [number of threads]\n");
+    }
+    else if (ipc_ctl != 0 && ipc_ctl != 1){
+        flag = 1;
+        printf("Invaild ipc_ctl flag, it must be 0 - for using pipes or 1 - for using shared memory\n");
     }
     return flag;
 }
