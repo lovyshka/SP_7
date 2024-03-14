@@ -5,7 +5,6 @@
 //fd[0] - read
 //fd[1] - write
 
-#define PROC_NUM 2
 
 int main(int argc, char *argv[]){
     if (check_argc(argc) == 1) return -1; //checek argc
