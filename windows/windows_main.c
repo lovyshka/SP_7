@@ -53,7 +53,7 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
     //хендлы для общения 0 - чтение 1 - запись
     HANDLE from_parent_to_child[number_of_process][2];
     HANDLE from_child_to_parent[number_of_process][2]; 
-    HANDLE parentStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE parentStdout = GetStdHandle(STD_ERROR_HANDLE);
     HANDLE childStdIn =  GetStdHandle(STD_INPUT_HANDLE);
 
     //аттрибуты для создания канала
@@ -84,11 +84,11 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
 
         
         SetStdHandle(STD_INPUT_HANDLE, from_parent_to_child[i][0]); //подменяем хендлы для дочек
-        SetStdHandle(STD_OUTPUT_HANDLE, from_child_to_parent[i][1]);
+        SetStdHandle(STD_ERROR_HANDLE, from_child_to_parent[i][1]);
         
 
         char buf[20];
-        sprintf(buf, "%d", arr_len); 
+        sprintf(buf, "%d", distribution[i]); 
         CreateProcess("subproc.exe", buf, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]);
     }
 
@@ -106,9 +106,8 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
             sum += res;
         }
     }
-    SetStdHandle(STD_OUTPUT_HANDLE, parentStdout);
-    printf("res = %d\n", sum);
-    return 0;
+    SetStdHandle(STD_ERROR_HANDLE, parentStdout);
+    *total_sum = sum;
 }
 
 VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd)
