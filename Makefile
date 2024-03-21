@@ -5,6 +5,6 @@ subproc:
 	gcc sub.c -o subproc
 
 clean: 
-	rm -rf a.out subproc
+	del *.exe
 
 rebuild: clean all

@@ -48,42 +48,67 @@ void controller(int ipc_ctl, int number_of_processes, int arr_len, int * arr, in
 
 int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_sum){
     int * distribution = divided_properly(number_of_process, arr_len);
-    HANDLE parent_write_pipe, child_read_pipe;
-    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
-    int index, sum = 0;
-    DWORD reaten;
-    PROCESS_INFORMATION pi;
-    STARTUPINFO si;
+    int index = 0, sum = 0;
 
+    //хендлы для общения 0 - чтение 1 - запись
+    HANDLE from_parent_to_child[number_of_process][2];
+    HANDLE from_child_to_parent[number_of_process][2]; 
+    HANDLE parentStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE childStdIn =  GetStdHandle(STD_INPUT_HANDLE);
+
+    //аттрибуты для создания канала
     SECURITY_ATTRIBUTES attr;
-    SECURITY_DESCRIPTOR sd;
-    putchar('!');
+    SECURITY_DESCRIPTOR sd; 
     InitializeSecurityAttr(&attr, &sd);
-    SetStdHandle(hStdin, child_read_pipe);
-    CreatePipe(&child_read_pipe, &parent_write_pipe, &attr, 0);
-    WriteFile(parent_write_pipe, arr, sizeof(int) * arr_len, &reaten, NULL);
-    CloseHandle(parent_write_pipe);
-    //ctl, handle read, handle write
-    LPSTR args = (LPSTR)malloc(100);
-    sprintf(args, "%p %d", child_read_pipe, arr_len);
-    CreateProcess(
-        "./subproc.exe",
-        args,
-        NULL,
-        NULL,
-        TRUE,
-        0,
-        NULL,
-        NULL,
-        &si,
-        &pi);
 
+    //атрибуты для создания процесса
+    PROCESS_INFORMATION pi[number_of_process];
+    STARTUPINFO si[number_of_process];
+    
+    for (int i = 0; i < number_of_process; i++){
+        DWORD writen;
+        GetStartupInfo(&si[i]);
 
-    // SetStdHandle(hStdin, parent_read_pipe);
+        CreatePipe(&from_parent_to_child[i][0], &from_parent_to_child[i][1], &attr, 0);
+        CreatePipe(&from_child_to_parent[i][0], &from_child_to_parent[i][1], &attr, 0);
 
+        int tmp_buf[distribution[i]];
 
-    // CloseHandle(childe_read_pipe);
-    SetStdHandle(STD_INPUT_HANDLE, hStdin);
+        for (int j = 0; j < distribution[i]; j++){
+            tmp_buf[j] = arr[index];
+            index++;
+        }
+
+        WriteFile(from_parent_to_child[i][1], tmp_buf, sizeof(int) * distribution[i], &writen, NULL);
+        CloseHandle(from_parent_to_child[i][1]);
+
+        
+        SetStdHandle(STD_INPUT_HANDLE, from_parent_to_child[i][0]); //подменяем хендлы для дочек
+        SetStdHandle(STD_OUTPUT_HANDLE, from_child_to_parent[i][1]);
+        
+
+        char buf[20];
+        sprintf(buf, "%d", arr_len); 
+        CreateProcess("subproc.exe", buf, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]);
+    }
+
+    for(int y = 0; y < number_of_process; y++){
+        DWORD dwres = WaitForSingleObject(pi[y].hProcess, INFINITE);
+
+        if (dwres == WAIT_FAILED){
+            printf("Error while waiting\n");
+        }
+        else {
+            int res;
+            DWORD read;
+            ReadFile(from_child_to_parent[y][0], &res, sizeof(int), &read, NULL);
+            CloseHandle(from_child_to_parent[y][0]);
+            sum += res;
+        }
+    }
+    SetStdHandle(STD_OUTPUT_HANDLE, parentStdout);
+    printf("res = %d\n", sum);
+    return 0;
 }
 
 VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd)

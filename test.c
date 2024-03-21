@@ -1,56 +1,44 @@
+#include <windows.h>
 #include <stdio.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <errno.h>
-#include <ctype.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
 
-//https://www.geeksforgeeks.org/ipc-shared-memory/
+VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd);
 
 int main(){
-    char path[] = "./test.c";
-    // int fd = open(path, O_CREAT | O_RDWR); //создание файлика если нет
-    // close(fd);
+    HANDLE parent_write_pipe , child_read_pipe;
+    SECURITY_ATTRIBUTES attr;
+    SECURITY_DESCRIPTOR sd;
+
+    int arr[] = {1, 2, 3, 4, 5, 6};
+    int arr_len = sizeof(arr) / sizeof(arr[0]);
+    DWORD writen;
+    InitializeSecurityAttr (&attr, &sd); // Используем собственную функцию
     
-    int arrs[] = {2, 3};
-
+    CreatePipe(&child_read_pipe, &parent_write_pipe , &attr, 0);
     
-    int number = 2;
-    key_t key[number];
-    int * arr[number];
-    for (int i = 0; i < number; i++){
-        
-        int pid = fork();
-        if (pid != 0){
+    WriteFile(parent_write_pipe, arr, sizeof(int) * arr_len, &writen, NULL);
+    CloseHandle(parent_write_pipe);
 
-            key[i] = ftok("./test.c", i);
-            int shmid = shmget(key[i], sizeof(int) * arrs[i], 0666 | IPC_CREAT); 
-            arr[i] = (int *) shmat(shmid, (void *) 0, 0); // "пришываем" выделенную память к нашему процессу
+    HANDLE StdIn = GetStdHandle(STD_INPUT_HANDLE );
+    SetStdHandle(STD_INPUT_HANDLE , child_read_pipe); // Заменяем дескриптор
+    
+    
+    STARTUPINFO si;
+    GetStartupInfo(&si);
+    PROCESS_INFORMATION pi;
+    char buf[20];
+    sprintf(buf, "%d", arr_len);
+    CreateProcess("subproc.exe", buf, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    
 
-            for (int j = 0; j < arrs[i]; j++) arr[i][j] = i + 2; // {2, 3} {3, 4, 5}   
-        }
-        else {
-            //subproc key arr_len
-            char key_buf[100];
-            char len_buf[100];
-            sprintf(key_buf,"%d", i);
-            sprintf(len_buf, "%d", arrs[i]);
-            char * args[4] = {"./subproc", key_buf, len_buf, NULL};
-            execve("./subproc", args, NULL);
-        }
-    }
-    while(wait(NULL) != -1 || errno != ECHILD);
-    int res = 0;
-    for (int i = 0; i < number; i++) res += arr[i][0];
-    printf("res = %d\n", res);
-    shmdt(arr);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+   
+    SetStdHandle(STD_INPUT_HANDLE , StdIn); // Возвращаем консольный ввод
     return 0;
+}
+
+VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd) {
+    attr->nLength = sizeof(SECURITY_ATTRIBUTES);
+    attr->bInheritHandle = TRUE; // Включаем наследование дескрипторов
+    InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
+    attr->lpSecurityDescriptor = sd;
 }
