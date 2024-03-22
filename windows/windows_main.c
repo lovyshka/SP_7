@@ -65,9 +65,16 @@ int work_with_shared_memory(int number_of_process, int arr_len, int * arr, int *
 
         HANDLE hfile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 
                                         0, sizeof(int) * distribution[i], key_buf);
-        
-        tmp_arrs[i] = MapViewOfFile(hfile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(int) * distribution[i]);
+        if (hfile == NULL){
+            printf("Error while creating file mapping\n");
+            return -1;
+        }
 
+        tmp_arrs[i] = MapViewOfFile(hfile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(int) * distribution[i]);
+        if (tmp_arrs[i] == NULL) {
+            printf("Error while mapping a view of file\n");
+            return -1;
+        } 
         for (int j = 0; j < distribution[i]; j++){
             tmp_arrs[i][j] = arr[index];
             index++; 
@@ -76,7 +83,10 @@ int work_with_shared_memory(int number_of_process, int arr_len, int * arr, int *
         char args[100];
         sprintf(args, "1 %d %d", distribution[i], keys[i]);
 
-        CreateProcess("subproc.exe", args, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]);
+        if (CreateProcess("subproc.exe", args, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]) == 0){
+            printf("Error while creating a process\n");
+            return -1;
+        }
     }
 
     for (int i = 0; i < number_of_process; i++){
@@ -87,9 +97,15 @@ int work_with_shared_memory(int number_of_process, int arr_len, int * arr, int *
         else {
             DWORD read;
             res += tmp_arrs[i][0];
+            if (UnmapViewOfFile(tmp_arrs[i]) == FALSE){
+                printf("Error while detaching memory in parent process\n");
+                return -1;
+            }
         }
     }
     *total_sum = res;
+    free(distribution);
+    free(arr);
 }   
 
 int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_sum){
@@ -115,8 +131,10 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
         DWORD writen;
         GetStartupInfo(&si[i]);
 
-        CreatePipe(&from_parent_to_child[i][0], &from_parent_to_child[i][1], &attr, 0);
-        CreatePipe(&from_child_to_parent[i][0], &from_child_to_parent[i][1], &attr, 0);
+        if (CreatePipe(&from_parent_to_child[i][0], &from_parent_to_child[i][1], &attr, 0) == FALSE || CreatePipe(&from_child_to_parent[i][0], &from_child_to_parent[i][1], &attr, 0) == FALSE){
+            printf("Error while creating a pipe\n");
+            return -1;
+        }
 
         int tmp_buf[distribution[i]];
 
@@ -125,17 +143,23 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
             index++;
         }
 
-        WriteFile(from_parent_to_child[i][1], tmp_buf, sizeof(int) * distribution[i], &writen, NULL);
-        CloseHandle(from_parent_to_child[i][1]);
+        if (WriteFile(from_parent_to_child[i][1], tmp_buf, sizeof(int) * distribution[i], &writen, NULL) == FALSE || CloseHandle(from_parent_to_child[i][1]) == FALSE){
+            printf("Error while writing in file\n");
+            return -1;
+        }
 
         
-        SetStdHandle(STD_INPUT_HANDLE, from_parent_to_child[i][0]); //подменяем хендлы для дочек
-        SetStdHandle(STD_ERROR_HANDLE, from_child_to_parent[i][1]);
+        if (SetStdHandle(STD_INPUT_HANDLE, from_parent_to_child[i][0]) == FALSE || SetStdHandle(STD_ERROR_HANDLE, from_child_to_parent[i][1]) == FALSE){
+            printf("Error while setting std handle\n");
+            return -1;
+        }
         
-
         char buf[20];
         sprintf(buf, "0 %d", distribution[i]); 
-        CreateProcess("subproc.exe", buf, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]);
+        if (CreateProcess("subproc.exe", buf, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]) == 0){
+            printf("Error whil creating process\n");
+            return -1;
+        }
     }
 
     for(int y = 0; y < number_of_process; y++){
@@ -147,22 +171,30 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
         else {
             int res;
             DWORD read;
-            ReadFile(from_child_to_parent[y][0], &res, sizeof(int), &read, NULL);
-            CloseHandle(from_child_to_parent[y][0]);
+            if (ReadFile(from_child_to_parent[y][0], &res, sizeof(int), &read, NULL) == FALSE || CloseHandle(from_child_to_parent[y][0]) == FALSE){
+                printf("Error while reading file\n");
+                return -1;
+            }
             sum += res;
         }
     }
-    SetStdHandle(STD_ERROR_HANDLE, parentStdout);
+    if (SetStdHandle(STD_ERROR_HANDLE, parentStdout) == FALSE){
+        printf("Error while setting std handle\n");
+        return -1;
+    } 
     *total_sum = sum;
     free(distribution);
     free(arr);
 }
 
-VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd)
+int InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd)
 {
     attr->nLength = sizeof(SECURITY_ATTRIBUTES);
     attr->bInheritHandle = TRUE; // Включаем наследование дескрипторов
-    InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
+    if (InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION) == FALSE) {
+        printf("Error while init sec=ure descriptor\n");
+        return -1;
+    }
     attr->lpSecurityDescriptor = sd;
 }
 
