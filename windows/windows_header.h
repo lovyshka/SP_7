@@ -17,3 +17,4 @@ void controller(int ipc_ctl, int number_of_processes, int arr_len, int * arr, in
 int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_sum);
 int * divided_properly(int number_of_processes, int number_of_numbers);
 VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd);
+int work_with_shared_memory(int number_of_process, int arr_len, int * arr, int * total_sum);

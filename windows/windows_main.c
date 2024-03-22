@@ -40,11 +40,57 @@ void controller(int ipc_ctl, int number_of_processes, int arr_len, int * arr, in
         printf("Work with pipes was choosen\n");
         work_with_pipes(number_of_processes, arr_len, arr, sum);
     }
-    // else if (ipc_ctl == 1) {
-    //     printf("Work with shared memory was choosen\n");
-    //     work_with_shared_memory(number_of_processes, arr_len, arr, sum);
-    // }
+    else if (ipc_ctl == 1) {
+        printf("Work with shared memory was choosen\n");
+        work_with_shared_memory(number_of_processes, arr_len, arr, sum);
+    }
 }
+
+int work_with_shared_memory(int number_of_process, int arr_len, int * arr, int * total_sum){
+    int * distribution = divided_properly(number_of_process, arr_len);
+    int * tmp_arrs[number_of_process];
+    int keys[number_of_process];
+    int index = 0,  res = 0;
+
+    //атрибуты для создания процесса
+    PROCESS_INFORMATION pi[number_of_process];
+    STARTUPINFO si[number_of_process];
+
+    for (int i = 0; i < number_of_process; i++){
+        GetStartupInfo(&si[i]);
+        keys[i] = 10 + i; // чтобы кайф был
+        
+        char key_buf[10];
+        sprintf(key_buf, "%d", keys[i]);
+
+        HANDLE hfile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 
+                                        0, sizeof(int) * distribution[i], key_buf);
+        
+        tmp_arrs[i] = MapViewOfFile(hfile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(int) * distribution[i]);
+
+        for (int j = 0; j < distribution[i]; j++){
+            tmp_arrs[i][j] = arr[index];
+            index++; 
+        }
+
+        char args[100];
+        sprintf(args, "1 %d %d", distribution[i], keys[i]);
+
+        CreateProcess("subproc.exe", args, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]);
+    }
+
+    for (int i = 0; i < number_of_process; i++){
+        DWORD dwres = WaitForSingleObject(pi[i].hProcess, INFINITE);
+        if (dwres == WAIT_FAILED){
+            printf("Error while waiting\n");
+        }
+        else {
+            DWORD read;
+            res += tmp_arrs[i][0];
+        }
+    }
+    *total_sum = res;
+}   
 
 int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_sum){
     int * distribution = divided_properly(number_of_process, arr_len);
@@ -88,7 +134,7 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
         
 
         char buf[20];
-        sprintf(buf, "%d", distribution[i]); 
+        sprintf(buf, "0 %d", distribution[i]); 
         CreateProcess("subproc.exe", buf, NULL, NULL, TRUE, 0, NULL, NULL, &si[i], &pi[i]);
     }
 
@@ -108,6 +154,8 @@ int work_with_pipes(int number_of_process, int arr_len, int * arr, int * total_s
     }
     SetStdHandle(STD_ERROR_HANDLE, parentStdout);
     *total_sum = sum;
+    free(distribution);
+    free(arr);
 }
 
 VOID InitializeSecurityAttr(LPSECURITY_ATTRIBUTES attr, SECURITY_DESCRIPTOR * sd)
